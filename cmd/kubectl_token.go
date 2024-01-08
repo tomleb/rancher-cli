@@ -305,12 +305,20 @@ func loginAndGenerateCred(input *LoginInput) (*config.ExecCredential, error) {
 	}
 	token := managementClient.Token{}
 	if samlProviders[input.authProvider] {
-		token, err = samlAuth(input, tlsConfig)
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return &config.ExecCredential{}, fmt.Errorf("unable to generate private key: %v", err)
+		}
+		token, err = samlAuth(input, tlsConfig, privateKey)
 		if err != nil {
 			return nil, err
 		}
 	} else if oauthProviders[input.authProvider] {
-		token, err = oauthAuth(input, tlsConfig)
+		privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+		if err != nil {
+			return &config.ExecCredential{}, fmt.Errorf("unable to generate private key: %v", err)
+		}
+		token, err = oauthAuth(input, tlsConfig, privateKey)
 		if err != nil {
 			return nil, err
 		}
@@ -387,16 +395,13 @@ func basicAuth(input *LoginInput, tlsConfig *tls.Config) (managementClient.Token
 	return token, nil
 }
 
-func oauthAuth(input *LoginInput, tlsConfig *tls.Config) (managementClient.Token, error) {
-	return samlAuth(input, tlsConfig)
+func oauthAuth(input *LoginInput, tlsConfig *tls.Config, privateKey *rsa.PrivateKey) (managementClient.Token, error) {
+	return samlAuth(input, tlsConfig, privateKey)
 }
 
-func samlAuth(input *LoginInput, tlsConfig *tls.Config) (managementClient.Token, error) {
+func samlAuth(input *LoginInput, tlsConfig *tls.Config, privateKey *rsa.PrivateKey) (managementClient.Token, error) {
 	token := managementClient.Token{}
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return token, err
-	}
+
 	publicKey := privateKey.PublicKey
 	marshalKey, err := json.Marshal(publicKey)
 	if err != nil {
@@ -471,7 +476,7 @@ func samlAuth(input *LoginInput, tlsConfig *tls.Config) (managementClient.Token,
 			}
 			decryptedBytes, err := privateKey.Decrypt(nil, decoded, &rsa.OAEPOptions{Hash: crypto.SHA256})
 			if err != nil {
-				panic(err)
+				return token, fmt.Errorf("decryption error: %v", err)
 			}
 			token.Token = string(decryptedBytes)
 
